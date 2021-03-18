@@ -1,12 +1,12 @@
 from app import app, db
-from flask import render_template, flash, redirect, url_for, request
-from app.forms import LoginForm, RegistrationForm, EditProfileForm, EmptyForm, ResetPasswordForm, PostForm, ResetPasswordRequestForm
+from flask import render_template, flash, redirect, url_for, request, g
+from app.forms import LoginForm, RegistrationForm, EditProfileForm, EmptyForm, PostForm
 from flask_login import current_user, login_user
 from app.models import User, Post
 from flask_login import logout_user, login_required
 from datetime import datetime
-
-from app.email import send_password_reset_email
+from guess_language import guess_language
+from flask_babel import get_locale
 
 
 @app.route('/', methods=['GET', 'POST'])
@@ -15,7 +15,11 @@ from app.email import send_password_reset_email
 def index():
     form = PostForm()
     if form.validate_on_submit():
-        post = Post(body=form.post.data, author=current_user)
+        language = guess_language(form.post.data)
+        if language == 'UNKNOWN' or len(language) > 5:
+            language = ''
+        post = Post(body=form.post.data, author=current_user,
+                    language=language)
         db.session.add(post)
         db.session.commit()
         flash('Your post is now live!')
@@ -78,13 +82,6 @@ def user(username):
     form = EmptyForm()
     return render_template('user.html', user=user, posts=posts.items,
                            next_url=next_url, prev_url=prev_url, form=form)
-
-
-@app.before_request
-def before_request():
-    if current_user.is_authenticated:
-        current_user.last_seen = datetime.utcnow()
-        db.session.commit()
 
 
 @app.route('/edit_profile', methods=['GET', 'POST'])
@@ -156,32 +153,9 @@ def explore():
                            next_url=next_url, prev_url=prev_url)
 
 
-@app.route('/reset_password_request', methods=['GET', 'POST'])
-def reset_password_request():
+@app.before_request
+def before_request():
     if current_user.is_authenticated:
-        return redirect(url_for('index'))
-    form = ResetPasswordRequestForm()
-    if form.validate_on_submit():
-        user = User.query.filter_by(email=form.email.data).first()
-        if user:
-            send_password_reset_email(user)
-        flash('Check your email for the instructions to reset your password')
-        return redirect(url_for('login'))
-    return render_template('reset_password_request.html',
-                           title='Reset Password', form=form)
-
-
-@app.route('/reset_password/<token>', methods=['GET', 'POST'])
-def reset_password(token):
-    if current_user.is_authenticated:
-        return redirect(url_for('index'))
-    user = User.verify_reset_password_token(token)
-    if not user:
-        return redirect(url_for('index'))
-    form = ResetPasswordForm()
-    if form.validate_on_submit():
-        user.set_password(form.password.data)
+        current_user.last_seen = datetime.utcnow()
         db.session.commit()
-        flash('Your password has been reset.')
-        return redirect(url_for('login'))
-    return render_template('reset_password.html', form=form)
+        g.locale = str(get_locale())
