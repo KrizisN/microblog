@@ -7,4 +7,5 @@ __pycache__
 .idea
 *.db
 /migrations
-/logs
+/app/main/logs
+/app/.env
